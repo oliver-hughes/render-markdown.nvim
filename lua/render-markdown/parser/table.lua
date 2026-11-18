@@ -324,12 +324,25 @@ end
 function Parser.units(line)
     local result = {} ---@type render.md.table.Unit[]
     for _, text in ipairs(line) do
-        for _, char in ipairs(str.chars(text[1])) do
-            result[#result + 1] = {
-                text = char,
-                highlight = text[2],
-                width = str.width(char),
-            }
+        local s = text[1]
+        if not s:find('[^\32-\126]') then
+            -- printable ascii is one byte and one cell per character, which
+            -- avoids splitting and measuring every character with vimscript
+            for i = 1, #s do
+                result[#result + 1] = {
+                    text = s:sub(i, i),
+                    highlight = text[2],
+                    width = 1,
+                }
+            end
+        else
+            for _, char in ipairs(str.chars(s)) do
+                result[#result + 1] = {
+                    text = char,
+                    highlight = text[2],
+                    width = str.width(char),
+                }
+            end
         end
     end
     return result

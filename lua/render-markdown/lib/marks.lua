@@ -8,8 +8,16 @@ local log = require('render-markdown.core.log')
 ---@field start_col integer
 ---@field opts render.md.mark.Opts
 ---@field replace? render.md.mark.Line[]
+---@field overlay? render.md.mark.Overlay
 
 ---@alias render.md.mark.Conceal boolean|render.md.Element
+
+---Part of a row drawn over its own text, other virtual text on the row is dropped.
+---@alias render.md.mark.Overlay
+---| 'text' # shown like any other mark
+---| 'cursor' # text with the cursor line highlight, only shown on the cursor row
+---| 'away' # text without it, only shown off the cursor row
+---| 'spacer' # empty lines, only shown while the rest of the row is concealed
 
 ---@class render.md.mark.Opts: vim.api.keyset.set_extmark
 ---@field virt_text? render.md.mark.Line
@@ -87,6 +95,23 @@ function Marks:replace(config, node, lines)
             conceal_lines = '',
         },
         replace = lines,
+    })
+end
+
+---@param config render.md.base.Config
+---@param conceal render.md.mark.Conceal
+---@param start_row integer
+---@param start_col integer
+---@param opts render.md.mark.Opts
+---@param overlay render.md.mark.Overlay
+---@return boolean
+function Marks:overlay(config, conceal, start_row, start_col, opts, overlay)
+    return self:insert(config, {
+        conceal = conceal,
+        start_row = start_row,
+        start_col = start_col,
+        opts = opts,
+        overlay = overlay,
     })
 end
 

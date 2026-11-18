@@ -68,7 +68,11 @@ end
 ---@param config render.md.buf.Config
 ---@return render.md.request.Context?
 function M.new(buf, win, config)
-    local view = require('render-markdown.request.view').new(buf)
+    local pipe_table = config.pipe_table
+    local tables = pipe_table.enabled
+        and pipe_table.wrap
+        and pipe_table.wrap_mode == 'overlay'
+    local view = require('render-markdown.request.view').new(buf, tables)
     local context = Context.new(buf, win, config, view)
     M.cache[buf] = context
     return context

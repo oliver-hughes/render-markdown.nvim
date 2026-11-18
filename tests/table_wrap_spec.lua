@@ -516,4 +516,285 @@ describe('table wrapping', function()
             'AFTER',
         })
     end)
+
+    describe('overlay', function()
+        ---@type render.md.table.UserConfig
+        local overlay = { cell = 'trimmed', wrap_mode = 'overlay' }
+        local tall = {
+            'BEFORE',
+            '',
+            '| A | B |',
+            '| - | - |',
+            '| one two three four five six seven eight | nine ten eleven twelve thirteen |',
+            '| x | y |',
+            '',
+            'AFTER',
+        }
+        local tall_rendered = {
+            'BEFORE',
+            '┌───────────────────┬──────────────────┐',
+            '│ A                 │ B                │',
+            '├───────────────────┼──────────────────┤',
+            '│ one two three     │ nine ten eleven  │',
+            '│ four five six     │ twelve thirteen  │',
+            '│ seven eight       │                  │',
+            '│ x                 │ y                │',
+            '└───────────────────┴──────────────────┘',
+            'AFTER',
+        }
+
+        it('cursor on wrapped row', function()
+            util.setup.text(mixed, {
+                anti_conceal = { enabled = true },
+                pipe_table = overlay,
+            })
+            util.assert_screen(mixed_rendered)
+
+            util.set_row(6)
+            util.assert_screen({
+                'BEFORE',
+                '┌───┬───┬──────────────────────────────┐',
+                '│ A │ B │                            C │',
+                '├━──┼━─━┼─────────────────────────────━┤',
+                '│ x │ y │                        short │',
+                '| z | w | one two three four five six se',
+                'ven eight nine ten |',
+                '│ a │ b │                          end │',
+                '└───┴───┴──────────────────────────────┘',
+                'AFTER',
+            })
+
+            util.set_row(5)
+            util.assert_screen({
+                'BEFORE',
+                '┌───┬───┬──────────────────────────────┐',
+                '│ A │ B │                            C │',
+                '├━──┼━─━┼─────────────────────────────━┤',
+                '| x | y | short |',
+                '│ z │ w │  one two three four five six │',
+                '│   │   │         seven eight nine ten │',
+                '│ a │ b │                          end │',
+                '└───┴───┴──────────────────────────────┘',
+                'AFTER',
+            })
+        end)
+
+        it('row taller than its text', function()
+            util.setup.text(tall, {
+                anti_conceal = { enabled = true },
+                pipe_table = overlay,
+            })
+            util.assert_screen(tall_rendered)
+
+            -- an empty line holds the rest of the row so nothing below moves
+            util.set_row(5)
+            util.assert_screen({
+                'BEFORE',
+                '┌───────────────────┬──────────────────┐',
+                '│ A                 │ B                │',
+                '├───────────────────┼──────────────────┤',
+                '| one two three four five six seven eigh',
+                't | nine ten eleven twelve thirteen |',
+                '',
+                '│ x                 │ y                │',
+                '└───────────────────┴──────────────────┘',
+                'AFTER',
+            })
+        end)
+
+        it('text taller than its row', function()
+            util.setup.text({
+                'BEFORE',
+                '',
+                '| A | B |',
+                '| - | - |',
+                '| x | [link](https://example.com/a/long/destination/that/exceeds/the/window) |',
+                '| y | one two three four five six seven eight nine ten |',
+                '',
+                'AFTER',
+            }, {
+                anti_conceal = { enabled = true },
+                pipe_table = overlay,
+            })
+            util.assert_screen({
+                'BEFORE',
+                '┌───┬──────────────────────────────────┐',
+                '│ A │ B                                │',
+                '├───┼──────────────────────────────────┤',
+                '│ x │ 󰖟 link                           │',
+                '│   │                                  │',
+                '│ y │ one two three four five six      │',
+                '│   │ seven eight nine ten             │',
+                '└───┴──────────────────────────────────┘',
+                'AFTER',
+            })
+
+            util.set_row(5)
+            util.assert_screen({
+                'BEFORE',
+                '┌───┬──────────────────────────────────┐',
+                '│ A │ B                                │',
+                '├───┼──────────────────────────────────┤',
+                '| x | link',
+                ' |',
+                '│ y │ one two three four five six      │',
+                '│   │ seven eight nine ten             │',
+                '└───┴──────────────────────────────────┘',
+                'AFTER',
+            })
+        end)
+
+        it('nowrap', function()
+            vim.o.wrap = false
+            util.setup.text(tall, {
+                anti_conceal = { enabled = true },
+                pipe_table = overlay,
+            })
+            util.assert_screen(tall_rendered)
+
+            util.set_row(5)
+            util.assert_screen({
+                'BEFORE',
+                '┌───────────────────┬──────────────────┐',
+                '│ A                 │ B                │',
+                '├───────────────────┼──────────────────┤',
+                '| one two three four five six seven eigh',
+                '',
+                '',
+                '│ x                 │ y                │',
+                '└───────────────────┴──────────────────┘',
+                'AFTER',
+            })
+        end)
+
+        it('grid', function()
+            util.setup.text(mixed, {
+                pipe_table = vim.tbl_extend('force', overlay, { grid = true }),
+            })
+            util.assert_screen({
+                'BEFORE',
+                '┌───┬───┬──────────────────────────────┐',
+                '│ A │ B │                            C │',
+                '├━──┼━─━┼─────────────────────────────━┤',
+                '│ x │ y │                        short │',
+                '├───┼───┼──────────────────────────────┤',
+                '│ z │ w │  one two three four five six │',
+                '│   │   │         seven eight nine ten │',
+                '├───┼───┼──────────────────────────────┤',
+                '│ a │ b │                          end │',
+                '└───┴───┴──────────────────────────────┘',
+                'AFTER',
+            })
+        end)
+
+        it('delimiter wider than the window', function()
+            util.setup.text({
+                'BEFORE',
+                '',
+                '| A | B |',
+                '| - | ------------------------------------------------------------ |',
+                '| x | y |',
+                '',
+                'AFTER',
+            }, {
+                anti_conceal = { enabled = true },
+                pipe_table = overlay,
+            })
+            util.assert_screen({
+                'BEFORE',
+                '┌───┬───┐',
+                '│ A │ B │',
+                '├───┼───┤',
+                '│   │   │',
+                '│ x │ y │',
+                '└───┴───┘',
+                'AFTER',
+            })
+
+            util.set_row(4)
+            util.assert_screen({
+                'BEFORE',
+                '┌───┬───┐',
+                '│ A │ B │',
+                '| - | ----------------------------------',
+                '-------------------------- |',
+                '│ x │ y │',
+                '└───┴───┘',
+                'AFTER',
+            })
+        end)
+
+        it('anti-conceal ignored', function()
+            util.setup.text(mixed, {
+                anti_conceal = {
+                    enabled = true,
+                    ignore = { table_border = { 'n' } },
+                },
+                pipe_table = overlay,
+            })
+            util.set_row(6)
+            util.assert_screen(mixed_rendered)
+        end)
+
+        it('whole table measured', function()
+            local input = { '', '| A | B |', '| - | - |' }
+            for _ = 1, 100 do
+                input[#input + 1] = '| x | y |'
+            end
+            input[#input + 1] = '| x | ' .. ('long '):rep(40) .. '|'
+            util.setup.text(input, { debounce = 0, pipe_table = overlay })
+            local expected = {
+                '┌───┬──────────────────────────────────┐',
+                '│ A │ B                                │',
+                '├───┼──────────────────────────────────┤',
+            }
+            for _ = 1, 36 do
+                expected[#expected + 1] =
+                    '│ x │ y                                │'
+            end
+            expected[#expected + 1] = ''
+            util.assert_screen(expected)
+        end)
+
+        it('cursor line', function()
+            vim.o.cursorline = true
+            util.setup.text(mixed, { pipe_table = overlay })
+            util.set_row(6)
+            util.assert_screen(mixed_rendered)
+
+            -- whether each overlay shown on a row has the cursor line highlight
+            local ns = require('render-markdown.core.ui').ns
+            ---@param row integer
+            ---@return boolean[]
+            local function lit(row)
+                local marks = vim.api.nvim_buf_get_extmarks(
+                    0,
+                    ns,
+                    { row, 0 },
+                    { row, -1 },
+                    { details = true }
+                )
+                local result = {} ---@type boolean[]
+                for _, mark in ipairs(marks) do
+                    local virt_text = mark[4].virt_text
+                    if virt_text then
+                        local hl = virt_text[1][2]
+                        result[#result + 1] = type(hl) == 'table'
+                            and vim.tbl_contains(hl, 'CursorLine')
+                    end
+                end
+                return result
+            end
+            -- rows 4 and 6 take up one screen line, row 5 takes up two
+            assert.same({ false }, lit(4))
+            assert.same({ true, true }, lit(5))
+            assert.same({ false }, lit(6))
+
+            util.set_row(5)
+            assert.same({ true }, lit(4))
+            assert.same({ false, false }, lit(5))
+            assert.same({ false }, lit(6))
+            vim.o.cursorline = false
+        end)
+    end)
 end)

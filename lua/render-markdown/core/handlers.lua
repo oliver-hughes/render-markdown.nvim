@@ -55,7 +55,33 @@ function M.run(context, parser)
             })
         end
     end
-    return marks
+    return M.overlay(marks)
+end
+
+---Rows with an overlay are drawn over in full. Other virtual text on them
+---would be hidden, and inline text would move where the row wraps.
+---@private
+---@param marks render.md.Mark[]
+---@return render.md.Mark[]
+function M.overlay(marks)
+    local rows = {} ---@type table<integer, true>
+    for _, mark in ipairs(marks) do
+        if mark.overlay then
+            rows[mark.start_row] = true
+        end
+    end
+    if next(rows) == nil then
+        return marks
+    end
+    local result = {} ---@type render.md.Mark[]
+    for _, mark in ipairs(marks) do
+        if
+            mark.overlay or not (rows[mark.start_row] and mark.opts.virt_text)
+        then
+            result[#result + 1] = mark
+        end
+    end
+    return result
 end
 
 ---@private

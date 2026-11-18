@@ -20,6 +20,11 @@ soon [ISSUE #14409](https://github.com/neovim/neovim/issues/14409).
 For tables `pipe_table.wrap = true` provides an alternative on Neovim 0.11+ by
 completely replacing the lines with virtual lines.
 
+With `pipe_table.wrap_mode = 'overlay'` rows are drawn over their own text rather
+than replaced, so they keep these line breaks and a row is never shorter than its
+text. Rows are also measured in the window being rendered, so another window on
+the same buffer with a different width will not line up.
+
 ## `block` Width Removes Column Features
 
 [ISSUE #385](https://github.com/MeanderingProgrammer/render-markdown.nvim/issues/385)

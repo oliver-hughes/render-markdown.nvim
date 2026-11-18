@@ -103,6 +103,80 @@ function M.row.visible(win, row)
     end)
 end
 
+---@private
+---@type table<string, integer[]>
+M.row.cache = {}
+
+---@private
+---@type integer
+M.row.cached = 0
+
+---Byte columns where each screen line of a soft wrapped row starts. These are
+---measured by Neovim so 'linebreak', 'showbreak' etc. are accounted for, and
+---concealed text does not move them. Measuring a row runs decoration
+---providers like the treesitter highlighter, so results are cached on the
+---text and the window settings they depend on.
+---@param win integer
+---@param row integer
+---@return integer[]
+function M.row.starts(win, row)
+    local buf = M.win.buf(win)
+    local text = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ''
+    local key = { vim.api.nvim_win_get_width(win), M.win.width(win) }
+    for _, name in ipairs({
+        'wrap',
+        'linebreak',
+        'breakindent',
+        'breakindentopt',
+        'showbreak',
+        'list',
+    }) do
+        key[#key + 1] = tostring(M.win.get(win, name))
+    end
+    key[#key + 1] = tostring(M.buf.get(buf, 'tabstop'))
+    key[#key + 1] = text
+    local id = table.concat(key, '\0')
+    local result = M.row.cache[id]
+    if not result then
+        if M.row.cached >= 2000 then
+            M.row.cache, M.row.cached = {}, 0
+        end
+        result = M.row.measure(win, row)
+        M.row.cache[id] = result
+        M.row.cached = M.row.cached + 1
+    end
+    return result
+end
+
+---@private
+---@param win integer
+---@param row integer
+---@return integer[]
+function M.row.measure(win, row)
+    local result = { 0 }
+    local height = vim.api.nvim_win_text_height(win, {
+        start_row = row,
+        end_row = row,
+        -- leaves out virtual lines above the row
+        start_vcol = 0,
+    })
+    for line = 1, height.all - height.fill - 1 do
+        -- virtual column where the row reaches this many screen lines
+        local reached = vim.api.nvim_win_text_height(win, {
+            start_row = row,
+            end_row = row,
+            start_vcol = 0,
+            max_height = line,
+        })
+        if reached.end_row ~= row then
+            break
+        end
+        local col = vim.fn.virtcol2col(win, row + 1, reached.end_vcol + 1)
+        result[#result + 1] = col - 1
+    end
+    return result
+end
+
 ---@class render.md.env.Mode
 M.mode = {}
 
@@ -225,6 +299,8 @@ end
 ---@param name string
 ---@return render.md.option.Value
 ---@overload fun(win: integer, name: 'conceallevel'): integer
+---@overload fun(win: integer, name: 'cursorline'): boolean
+---@overload fun(win: integer, name: 'cursorlineopt'): string
 ---@overload fun(win: integer, name: 'diff'): boolean
 ---@overload fun(win: integer, name: 'wrap'): boolean
 function M.win.get(win, name)

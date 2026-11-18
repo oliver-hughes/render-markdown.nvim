@@ -2,18 +2,22 @@ local Node = require('render-markdown.lib.node')
 local env = require('render-markdown.lib.env')
 local interval = require('render-markdown.lib.interval')
 local log = require('render-markdown.core.log')
+local ts = require('render-markdown.core.ts')
 
 ---@class render.md.request.View
 ---@field private buf integer
+---@field private tables boolean
 ---@field private ranges render.md.Range[]
 local View = {}
 View.__index = View
 
 ---@param buf integer
+---@param tables? boolean include all of every pipe table in view
 ---@return render.md.request.View
-function View.new(buf)
+function View.new(buf, tables)
     local self = setmetatable({}, View)
     self.buf = buf
+    self.tables = tables or false
     local ranges = {} ---@type render.md.Range[]
     for _, win in ipairs(env.buf.wins(buf)) do
         ranges[#ranges + 1] = env.range(buf, win, 10)
@@ -58,10 +62,31 @@ end
 ---@param parser vim.treesitter.LanguageTree
 ---@param callback fun()
 function View:parse(parser, callback)
+    if self.tables and parser:lang() == 'markdown' then
+        -- tables are in the root tree, parse injections once for the result
+        self:extend(parser:parse()[1])
+    end
     for _, range in ipairs(self.ranges) do
         parser:parse(range)
     end
     callback()
+end
+
+---Extend ranges to the whole of any pipe table they overlap, so the table is
+---measured the same however much of it is in view.
+---@private
+---@param tree? TSTree
+function View:extend(tree)
+    if not tree then
+        return
+    end
+    local query = ts.parse('markdown', '(pipe_table) @table')
+    local ranges = vim.list_extend({}, self.ranges) ---@type render.md.Range[]
+    self:query(tree:root(), query, function(_, node)
+        local start_row, _, end_row = node:range()
+        ranges[#ranges + 1] = { start_row, end_row }
+    end)
+    self.ranges = interval.coalesce(ranges)
 end
 
 ---@param root TSNode

@@ -1643,6 +1643,7 @@ M.pipe_table = {}
 ---@field preset render.md.table.Preset
 ---@field cell render.md.table.Cell
 ---@field wrap boolean
+---@field wrap_mode render.md.table.WrapMode
 ---@field grid boolean
 ---@field cell_offset fun(ctx: render.md.table.cell.Context): integer
 ---@field padding integer
@@ -1675,6 +1676,12 @@ M.pipe_table.cell = {
     overlay = 'overlay',
 }
 
+---@enum render.md.table.WrapMode
+M.pipe_table.wrap_mode = {
+    virtual = 'virtual',
+    overlay = 'overlay',
+}
+
 ---@enum render.md.table.Style
 M.pipe_table.style = {
     full = 'full',
@@ -1702,6 +1709,10 @@ M.pipe_table.default = {
     cell = 'padded',
     -- Fit wide tables to the current window by wrapping individual cells.
     wrap = true,
+    -- Determines how a table with wrapped rows is drawn.
+    -- | virtual | replaces each wrapped row with virtual lines                                 |
+    -- | overlay | draws over the soft wrapped text of every row, so the cursor stays on text |
+    wrap_mode = 'virtual',
     -- Draw a horizontal line between every body row.
     grid = false,
     -- Adjust the computed width of table cells using custom logic.
@@ -1747,6 +1758,7 @@ function M.pipe_table.schema()
         preset = { enum = M.pipe_table.preset },
         cell = { enum = M.pipe_table.cell },
         wrap = { type = 'boolean' },
+        wrap_mode = { enum = M.pipe_table.wrap_mode },
         grid = { type = 'boolean' },
         cell_offset = { type = 'function' },
         padding = { type = 'number' },

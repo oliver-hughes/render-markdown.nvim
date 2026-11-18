@@ -721,6 +721,10 @@ require('render-markdown').setup({
         cell = 'padded',
         -- Fit wide tables to the current window by wrapping individual cells.
         wrap = true,
+        -- Determines how a table with wrapped rows is drawn.
+        -- | virtual | replaces each wrapped row with virtual lines                                 |
+        -- | overlay | draws over the soft wrapped text of every row, so the cursor stays on text |
+        wrap_mode = 'virtual',
         -- Draw a horizontal line between every body row.
         grid = false,
         -- Adjust the computed width of table cells using custom logic.
@@ -1504,6 +1508,10 @@ require('render-markdown').setup({
         cell = 'padded',
         -- Fit wide tables to the current window by wrapping individual cells.
         wrap = true,
+        -- Determines how a table with wrapped rows is drawn.
+        -- | virtual | replaces each wrapped row with virtual lines                                 |
+        -- | overlay | draws over the soft wrapped text of every row, so the cursor stays on text |
+        wrap_mode = 'virtual',
         -- Draw a horizontal line between every body row.
         grid = false,
         -- Adjust the computed width of table cells using custom logic.

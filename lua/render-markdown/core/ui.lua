@@ -220,11 +220,28 @@ function Updater:hide(extmark, range)
         return true
     end
 
-    -- does not overlap with hidden range -> show
-    if not extmark:overlaps(range) then
+    -- does not overlap with hidden range -> not concealed
+    local concealed = extmark:overlaps(range) and self:concealed(mark)
+
+    local overlay = mark.overlay
+    if overlay == 'spacer' then
+        -- holds the space of the concealed row -> show while it is hidden
+        return not concealed
+    elseif concealed then
+        return true
+    elseif overlay == 'cursor' or overlay == 'away' then
+        -- copies with and without the cursor line -> show the one that applies
+        local row = env.row.get(self.buf, self.win)
+        return (row == mark.start_row) ~= (overlay == 'cursor')
+    else
         return false
     end
+end
 
+---@private
+---@param mark render.md.Mark
+---@return boolean
+function Updater:concealed(mark)
     local conceal = mark.conceal
     if type(conceal) == 'boolean' then
         -- mark has conceal value -> respect

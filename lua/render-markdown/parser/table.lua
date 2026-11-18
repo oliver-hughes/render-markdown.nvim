@@ -200,6 +200,7 @@ function Parser:parse(root, marks)
         if not widths then
             layout.wrap = false
         else
+            widths = self:shortest(rows, widths, desired, budget)
             for i, width in ipairs(widths) do
                 cols[i].width = width
             end
@@ -405,6 +406,297 @@ function Parser.allocate(desired, minimum, budget)
         widths[i] = widths[i] + 1
     end
 
+    return widths
+end
+
+---Allocate splits space equally between every column that is too wide, so a
+---long column gets the same width as a much shorter one and its rows get tall.
+---Also try two layouts that give the space to the columns which save the most
+---lines, and keep whichever needs the fewest lines in total.
+---@private
+---@param rows render.md.table.Row[]
+---@param widths integer[]
+---@param desired integer[]
+---@param budget integer
+---@return integer[]
+function Parser:shortest(rows, widths, desired, budget)
+    local padding = self.config.padding
+    local win = self.context.win
+    local text_width = env.win.width(win)
+    -- rows drawn over their own text are never shorter than it
+    local overlay = self.config.wrap_mode == 'overlay'
+        and env.win.get(win, 'wrap')
+
+    -- columns are kept at least as wide as their longest word
+    local minimum = {} ---@type integer[]
+    for i = 1, #widths do
+        minimum[i] = math.max(self.config.min_width, 2 * padding + 1)
+    end
+    local floors = {} ---@type integer[]
+    local cells = {} ---@type render.md.table.Wrap[][]
+    for r, row in ipairs(rows) do
+        floors[r] = 1
+        if overlay then
+            local _, source = row.node:line('first', 0)
+            floors[r] = math.ceil(str.width(source or '') / text_width)
+        end
+        cells[r] = {}
+        for i, cell in ipairs(row.cells) do
+            local wrap = Parser.wrapper(assert(cell.units, 'missing units'))
+            minimum[i] = math.max(minimum[i], 2 * padding + wrap.word)
+            cells[r][i] = wrap
+        end
+    end
+
+    ---@param r integer
+    ---@param i integer
+    ---@param width integer
+    ---@return integer
+    local function lines(r, i, width)
+        local wrap = cells[r][i]
+        if not wrap then
+            return 1
+        end
+        local count = wrap.memo[width]
+        if not count then
+            count = wrap:lines(width - 2 * padding)
+            wrap.memo[width] = count
+        end
+        return count
+    end
+
+    ---@param candidate integer[]
+    ---@return integer
+    local function height(candidate)
+        local result = 0
+        for r, floor in ipairs(floors) do
+            local row_lines = floor
+            for i, width in ipairs(candidate) do
+                row_lines = math.max(row_lines, lines(r, i, width))
+            end
+            result = result + row_lines
+        end
+        return result
+    end
+
+    local result, total = widths, height(widths)
+    ---@param candidate? integer[]
+    local function try(candidate)
+        local candidate_total = candidate and height(candidate)
+        if candidate_total and candidate_total < total then
+            result, total = candidate, candidate_total
+        end
+    end
+    try(Parser.fit(desired, minimum, budget))
+    try(Parser.greedy(desired, minimum, budget, floors, lines))
+    return result
+end
+
+---@class render.md.table.Wrap
+---@field widths integer[]
+---@field spaces boolean[]
+---@field word integer
+---@field memo table<integer, integer>
+local Wrap = {}
+Wrap.__index = Wrap
+
+---@private
+---@param units render.md.table.Unit[]
+---@return render.md.table.Wrap
+function Parser.wrapper(units)
+    local self = setmetatable({}, Wrap)
+    self.widths = {}
+    self.spaces = {}
+    self.word = 0
+    self.memo = {}
+    local word = 0
+    for i, unit in ipairs(units) do
+        self.widths[i] = unit.width
+        self.spaces[i] = str.whitespace(unit.text)
+        word = self.spaces[i] and 0 or word + unit.width
+        self.word = math.max(self.word, word)
+    end
+    return self
+end
+
+---Number of lines wrap produces at a width, without building them.
+---@param width integer
+---@return integer
+function Wrap:lines(width)
+    local widths, spaces = self.widths, self.spaces
+    local result = 0
+    local first = 1
+    while first <= #widths do
+        local last = first - 1
+        local used = 0
+        local space = nil ---@type integer|nil
+        while last < #widths and used + widths[last + 1] <= width do
+            last = last + 1
+            used = used + widths[last]
+            if spaces[last] then
+                space = last
+            end
+        end
+        if last < first then
+            -- unit wider than the column
+            return math.huge
+        end
+        local next_unit = last + 1
+        if
+            last < #widths
+            and not spaces[last + 1]
+            and space
+            and space > first
+        then
+            next_unit = space + 1
+        end
+        result = result + 1
+        first = next_unit
+        while first <= #widths and spaces[first] do
+            first = first + 1 ---@type integer
+        end
+    end
+    return math.max(result, 1)
+end
+
+---Columns that fit in an equal share keep their width, the rest start at their
+---minimum and split what is left by how much more they want.
+---@param desired integer[]
+---@param minimum integer[]
+---@param budget integer
+---@return integer[]?
+function Parser.fit(desired, minimum, budget)
+    local locked = {} ---@type table<integer, true>
+    local free = #desired
+    local changed = true
+    while changed and free > 0 do
+        changed = false
+        local share = math.floor(budget / free)
+        for i = 1, #desired do
+            if not locked[i] and desired[i] <= share then
+                locked[i] = true
+                budget = budget - desired[i]
+                free = free - 1
+                changed = true
+            end
+        end
+    end
+
+    local widths = {} ---@type integer[]
+    local want = 0
+    for i, width in ipairs(desired) do
+        if locked[i] then
+            widths[i] = width
+        else
+            widths[i] = minimum[i]
+            budget = budget - minimum[i]
+            want = want + width - minimum[i]
+        end
+    end
+    if budget < 0 then
+        return nil
+    end
+    if want > 0 then
+        local extra = budget
+        for i, width in ipairs(desired) do
+            if not locked[i] then
+                local share = (width - minimum[i]) / want
+                widths[i] = widths[i] + math.floor(extra * share)
+            end
+        end
+    end
+    return widths
+end
+
+---Every column starts at its minimum, then space keeps going to whichever
+---column saves the most lines for each character it is given.
+---@param desired integer[]
+---@param minimum integer[]
+---@param budget integer
+---@param floors integer[] minimum number of lines for each row
+---@param lines fun(row: integer, col: integer, width: integer): integer
+---@return integer[]?
+function Parser.greedy(desired, minimum, budget, floors, lines)
+    local widths = {} ---@type integer[]
+    for i, width in ipairs(minimum) do
+        widths[i] = width
+        budget = budget - width
+    end
+    if budget < 0 then
+        return nil
+    end
+
+    -- lines each cell takes at the current widths
+    local counts = {} ---@type integer[][]
+    local current = 0
+    for r, floor in ipairs(floors) do
+        counts[r] = {}
+        local height = floor
+        for i, width in ipairs(widths) do
+            counts[r][i] = lines(r, i, width)
+            height = math.max(height, counts[r][i])
+        end
+        current = current + height
+    end
+
+    while budget > 0 do
+        local best = nil ---@type { i: integer, step: integer, lines: integer, ratio: number }?
+        for i = 1, #widths do
+            -- height of each row without this column, only it changes below
+            local others = {} ---@type integer[]
+            for r, floor in ipairs(floors) do
+                local height = floor
+                for j, count in ipairs(counts[r]) do
+                    if j ~= i then
+                        height = math.max(height, count)
+                    end
+                end
+                others[r] = height
+            end
+            local room = math.min(budget, desired[i] - widths[i])
+            -- try +1, +2, +4 ... +room so a column on a plateau is not skipped
+            local step = 1
+            while room > 0 do
+                local amount = math.min(step, room)
+                local total = 0
+                for r, height in ipairs(others) do
+                    total = total
+                        + math.max(height, lines(r, i, widths[i] + amount))
+                end
+                local ratio = (current - total) / amount
+                if ratio > 0 and (not best or ratio > best.ratio) then
+                    best =
+                        { i = i, step = amount, lines = total, ratio = ratio }
+                end
+                if amount == room then
+                    break
+                end
+                step = step * 2
+            end
+        end
+        if not best then
+            break
+        end
+        widths[best.i] = widths[best.i] + best.step
+        budget = budget - best.step
+        current = best.lines
+        for r = 1, #floors do
+            counts[r][best.i] = lines(r, best.i, widths[best.i])
+        end
+    end
+
+    -- nothing saves a line, split what is left by how much more columns want
+    local want = 0
+    for i, width in ipairs(desired) do
+        want = want + width - widths[i]
+    end
+    if budget > 0 and want > 0 then
+        local extra = budget
+        for i, width in ipairs(desired) do
+            local share = (width - widths[i]) / want
+            widths[i] = widths[i] + math.floor(extra * share)
+        end
+    end
     return widths
 end
 

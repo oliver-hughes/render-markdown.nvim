@@ -199,6 +199,29 @@ describe('table wrapping', function()
         })
     end)
 
+    it('space goes to columns that save lines', function()
+        util.setup.text({
+            'BEFORE',
+            '',
+            '| A | B |',
+            '| - | - |',
+            '| one two three four five six seven | eight nine ten eleven twelve |',
+            '',
+            'AFTER',
+        }, { pipe_table = { cell = 'trimmed' } })
+        -- an equal split would take three lines
+        util.assert_screen({
+            'BEFORE',
+            '┌────────────────────┬────────────────┐',
+            '│ A                  │ B              │',
+            '├────────────────────┼────────────────┤',
+            '│ one two three four │ eight nine ten │',
+            '│ five six seven     │ eleven twelve  │',
+            '└────────────────────┴────────────────┘',
+            'AFTER',
+        })
+    end)
+
     it('grid', function()
         util.setup.text(mixed, {
             pipe_table = { cell = 'trimmed', grid = true },

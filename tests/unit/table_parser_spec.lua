@@ -24,6 +24,38 @@ describe('table parser', function()
         assert.same(nil, Parser.allocate({ 8, 20, 60 }, { 4, 4, 4 }, 11))
     end)
 
+    it('fits space to how much each column wants', function()
+        assert.same({ 10, 14, 35 }, Parser.fit({ 10, 30, 90 }, { 4, 6, 8 }, 60))
+        assert.same({ 8, 20, 60 }, Parser.fit({ 8, 20, 60 }, { 4, 4, 4 }, 100))
+        assert.same(nil, Parser.fit({ 10, 30, 90 }, { 4, 30, 30 }, 40))
+    end)
+
+    it('gives space to the columns that save the most lines', function()
+        -- one row, with 60 and 12 characters in its two cells
+        local sizes = { 60, 12 }
+        ---@param col integer
+        ---@param width integer
+        ---@return integer
+        local function lines(_, col, width)
+            return math.ceil(sizes[col] / width)
+        end
+        ---@param widths integer[]
+        ---@return integer
+        local function height(widths)
+            return math.max(lines(1, 1, widths[1]), lines(1, 2, widths[2]))
+        end
+        local floors = { 1 }
+        assert.same(
+            { 33, 6 },
+            Parser.greedy(sizes, { 4, 4 }, 40, floors, lines)
+        )
+        assert.same(2, height({ 33, 6 }))
+        -- an equal split needs one more line
+        assert.same({ 28, 12 }, Parser.allocate(sizes, { 4, 4 }, 40))
+        assert.same(3, height({ 28, 12 }))
+        assert.same(nil, Parser.greedy(sizes, { 30, 30 }, 40, floors, lines))
+    end)
+
     it('breaks at word and token without losing highlights', function()
         local units = Parser.units({
             { 'abc def ', 'Normal' },

@@ -1,8 +1,11 @@
+local env = require('render-markdown.lib.env')
+local scope = require('render-markdown.lib.scope')
 local str = require('render-markdown.lib.str')
 
 ---@class render.md.request.Context
 ---@field buf integer
 ---@field win integer
+---@field wins? integer[] windows that tables are drawn for one at a time
 ---@field config render.md.buf.Config
 ---@field view render.md.request.View
 ---@field callout render.md.request.Callout
@@ -37,6 +40,18 @@ function Context.new(buf, win, config, view)
     return self
 end
 
+---The same request for drawing into one window. Everything is shared except
+---the rows taken by borders, which each window takes for itself.
+---@param win integer
+---@return render.md.request.Context
+function Context:window(win)
+    ---@type render.md.request.Context
+    local result = setmetatable({}, { __index = self })
+    result.win = win
+    result.used = self.used:copy()
+    return result
+end
+
 ---@param body? render.md.node.Body
 ---@return integer
 function Context:width(body)
@@ -60,7 +75,15 @@ M.cache = {}
 ---@return boolean
 function M.contains(buf, win)
     local context = M.cache[buf]
-    return context and context.view:contains(win) or false
+    if not context then
+        return false
+    end
+    -- tables are drawn for each window, a window opened or closed on the
+    -- buffer is not always resized so may not have been drawn yet
+    if context.wins and not vim.deep_equal(context.wins, M.wins(buf)) then
+        return false
+    end
+    return context.view:contains(win)
 end
 
 ---@param buf integer
@@ -74,8 +97,22 @@ function M.new(buf, win, config)
         and pipe_table.wrap_mode == 'overlay'
     local view = require('render-markdown.request.view').new(buf, tables)
     local context = Context.new(buf, win, config, view)
+    -- rows drawn over are measured where a window wraps them, with marks
+    -- scoped to a window each window can be drawn for its own width
+    if tables and scope.enabled then
+        context.wins = M.wins(buf)
+    end
     M.cache[buf] = context
     return context
+end
+
+---@private
+---@param buf integer
+---@return integer[]
+function M.wins(buf)
+    local wins = env.buf.wins(buf)
+    table.sort(wins)
+    return wins
 end
 
 ---@param buf integer

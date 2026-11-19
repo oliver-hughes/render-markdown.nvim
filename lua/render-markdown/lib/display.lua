@@ -13,7 +13,9 @@ function M.prefix(context, marks, node)
     for _, mark in ipairs(marks) do
         local opts = mark.opts
         if
-            mark.start_row == node.start_row
+            -- marks for one window are a table's own, drawn for that window
+            not mark.win
+            and mark.start_row == node.start_row
             and mark.start_col < #source
             and opts.end_col
             and opts.end_col <= #source

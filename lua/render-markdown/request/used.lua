@@ -10,6 +10,13 @@ function Used.new()
     return self
 end
 
+---@return render.md.request.Used
+function Used:copy()
+    local result = Used.new()
+    result.values = vim.deepcopy(self.values)
+    return result
+end
+
 ---@param row integer
 ---@return boolean
 function Used:take(row)

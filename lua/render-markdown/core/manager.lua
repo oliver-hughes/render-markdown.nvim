@@ -39,6 +39,16 @@ function M.init()
             end
         end,
     })
+    -- marks drawn for one window are removed with it
+    vim.api.nvim_create_autocmd('WinClosed', {
+        group = M.group,
+        callback = function(args)
+            local win = tonumber(args.match)
+            if win then
+                ui.close(win)
+            end
+        end,
+    })
 end
 
 ---@param buf integer

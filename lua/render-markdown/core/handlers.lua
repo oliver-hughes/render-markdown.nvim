@@ -55,30 +55,63 @@ function M.run(context, parser)
             })
         end
     end
-    return M.overlay(marks)
+    return M.overlay(marks, context.wins or {})
 end
 
 ---Rows with an overlay are drawn over in full. Other virtual text on them
----would be hidden, and inline text would move where the row wraps.
+---would be hidden, and inline text would move where the row wraps. A row can
+---be drawn over in some windows and not others, then virtual text shown in
+---every window is copied into each window that still needs it.
 ---@private
 ---@param marks render.md.Mark[]
+---@param wins integer[] windows that tables were drawn for
 ---@return render.md.Mark[]
-function M.overlay(marks)
-    local rows = {} ---@type table<integer, true>
+function M.overlay(marks, wins)
+    -- rows drawn over in each window, 0 for overlays shown in every window
+    local covered = {} ---@type table<integer, table<integer, true>>
     for _, mark in ipairs(marks) do
         if mark.overlay then
-            rows[mark.start_row] = true
+            local win = mark.win or 0
+            covered[win] = covered[win] or {}
+            covered[win][mark.start_row] = true
         end
     end
-    if next(rows) == nil then
+    if next(covered) == nil then
         return marks
+    end
+    ---@param win integer
+    ---@param row integer
+    ---@return boolean
+    local function over(win, row)
+        return (covered[0] and covered[0][row])
+            or (covered[win] and covered[win][row])
+            or false
     end
     local result = {} ---@type render.md.Mark[]
     for _, mark in ipairs(marks) do
-        if
-            mark.overlay or not (rows[mark.start_row] and mark.opts.virt_text)
-        then
+        local row = mark.start_row
+        if mark.overlay or not mark.opts.virt_text then
             result[#result + 1] = mark
+        elseif mark.win then
+            if not over(mark.win, row) then
+                result[#result + 1] = mark
+            end
+        else
+            local keep = {} ---@type integer[]
+            for _, win in ipairs(wins) do
+                if not over(win, row) then
+                    keep[#keep + 1] = win
+                end
+            end
+            if #keep == #wins and not over(0, row) then
+                result[#result + 1] = mark
+            else
+                for _, win in ipairs(keep) do
+                    local copy = vim.tbl_extend('force', {}, mark)
+                    copy.win = win
+                    result[#result + 1] = copy
+                end
+            end
         end
     end
     return result

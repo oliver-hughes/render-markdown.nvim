@@ -9,6 +9,7 @@ local log = require('render-markdown.core.log')
 ---@field opts render.md.mark.Opts
 ---@field replace? render.md.mark.Line[]
 ---@field overlay? render.md.mark.Overlay
+---@field win? integer only shown in this window
 
 ---@alias render.md.mark.Conceal boolean|render.md.Element
 
@@ -34,6 +35,7 @@ local log = require('render-markdown.core.log')
 ---@class render.md.Marks
 ---@field private context render.md.request.Context
 ---@field private update boolean
+---@field private win? integer
 ---@field private marks render.md.Mark[]
 local Marks = {}
 Marks.__index = Marks
@@ -52,6 +54,12 @@ end
 ---@return render.md.Mark[]
 function Marks:get()
     return self.marks
+end
+
+---Marks added after this are only shown in the window, nil for every window.
+---@param win? integer
+function Marks:scope(win)
+    self.win = win
 end
 
 ---@param config render.md.base.Config
@@ -136,6 +144,7 @@ end
 ---@return boolean
 function Marks:insert(config, mark)
     mark.modes = config.render_modes
+    mark.win = self.win
     local feature, min_version = self:validate(mark.opts)
     if feature and min_version then
         local message = feature .. ' requires neovim >= ' .. min_version

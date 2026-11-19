@@ -763,7 +763,8 @@ describe('table wrapping', function()
             util.assert_screen(mixed_rendered)
 
             -- whether each overlay shown on a row has the cursor line highlight
-            local ns = require('render-markdown.core.ui').ns
+            -- in any namespace, as overlays can be scoped to their window
+            local ns = -1
             ---@param row integer
             ---@return boolean[]
             local function lit(row)
@@ -795,6 +796,190 @@ describe('table wrapping', function()
             assert.same({ false, false }, lit(5))
             assert.same({ false }, lit(6))
             vim.o.cursorline = false
+        end)
+
+        describe('windows', function()
+            ---@type render.md.UserConfig
+            local opts = { debounce = 0, pipe_table = overlay }
+
+            ---@param win integer
+            ---@return string[]
+            local function screen(win)
+                vim.cmd('redraw')
+                local pos = vim.api.nvim_win_get_position(win)
+                local width = vim.api.nvim_win_get_width(win)
+                local height = vim.api.nvim_win_get_height(win)
+                local result = {} ---@type string[]
+                for row = pos[1] + 1, pos[1] + height do
+                    local line = ''
+                    for col = pos[2] + 1, pos[2] + width do
+                        line = line .. vim.fn.screenstring(row, col)
+                    end
+                    line = line:gsub('%s+$', '')
+                    if line == '~' then
+                        break
+                    end
+                    result[#result + 1] = line
+                end
+                return result
+            end
+
+            ---Draws the buffer again in every window on it, as a resize does.
+            ---@param buf integer
+            local function resized(buf)
+                require('render-markdown').render({
+                    buf = buf,
+                    event = 'WinResized',
+                })
+                vim.wait(0)
+            end
+
+            ---Opens a second window on the current buffer, the current window
+            ---ends up 50 wide and the new one, which becomes current, 30.
+            ---@param resize? boolean
+            ---@return integer wide, integer narrow, integer buf
+            local function split(resize)
+                local buf = vim.api.nvim_get_current_buf()
+                local wide = vim.api.nvim_get_current_win()
+                vim.cmd('vsplit')
+                local narrow = vim.api.nvim_get_current_win()
+                vim.api.nvim_win_set_width(narrow, 30)
+                if resize ~= false then
+                    resized(buf)
+                end
+                return wide, narrow, buf
+            end
+
+            ---How a window draws the buffer while it is the only one on it.
+            ---@param win integer
+            ---@param other integer
+            ---@param buf integer
+            ---@return string[]
+            local function alone(win, other, buf)
+                local empty = vim.api.nvim_create_buf(false, true)
+                vim.api.nvim_win_set_buf(other, empty)
+                resized(buf)
+                local result = screen(win)
+                vim.api.nvim_win_set_buf(other, buf)
+                resized(buf)
+                return result
+            end
+
+            before_each(function()
+                vim.o.columns = 81
+            end)
+
+            after_each(function()
+                vim.cmd('only')
+            end)
+
+            it('each window wraps rows for its own width', function()
+                util.setup.text(mixed, opts)
+                local wide, narrow, buf = split()
+                local actual_wide, actual_narrow = screen(wide), screen(narrow)
+                assert.same({
+                    'BEFORE',
+                    '┌───┬───┬────────────────────┐',
+                    '│ A │ B │                  C │',
+                    '├━──┼━─━┼───────────────────━┤',
+                    '│ x │ y │              short │',
+                    '│ z │ w │ one two three four │',
+                    '│   │   │     five six seven │',
+                    '│   │   │     eight nine ten │',
+                    '│ a │ b │                end │',
+                    '└───┴───┴────────────────────┘',
+                    'AFTER',
+                }, actual_narrow)
+                assert.same(alone(wide, narrow, buf), actual_wide)
+                assert.same(alone(narrow, wide, buf), actual_narrow)
+            end)
+
+            it('a new window is drawn without being resized', function()
+                util.setup.text(mixed, opts)
+                local wide, narrow, buf = split(false)
+                -- moving the cursor finds the buffer in a new window
+                vim.api.nvim_exec_autocmds('CursorMoved', { buffer = buf })
+                vim.wait(0)
+                local actual_wide, actual_narrow = screen(wide), screen(narrow)
+                assert.same(alone(wide, narrow, buf), actual_wide)
+                assert.same(alone(narrow, wide, buf), actual_narrow)
+            end)
+
+            it('the cursor only reveals its row in its own window', function()
+                util.setup.text(
+                    mixed,
+                    vim.tbl_extend('force', opts, {
+                        anti_conceal = { enabled = true },
+                    })
+                )
+                local wide, narrow, buf = split()
+                local expected_wide = alone(wide, narrow, buf)
+
+                -- the narrow window is current
+                util.set_row(6)
+                assert.same({
+                    'BEFORE',
+                    '┌───┬───┬────────────────────┐',
+                    '│ A │ B │                  C │',
+                    '├━──┼━─━┼───────────────────━┤',
+                    '│ x │ y │              short │',
+                    '| z | w | one two three four f',
+                    'ive six seven eight nine ten |',
+                    '',
+                    '│ a │ b │                end │',
+                    '└───┴───┴────────────────────┘',
+                    'AFTER',
+                }, screen(narrow))
+                assert.same(expected_wide, screen(wide))
+            end)
+
+            it('virtual text stays where a row is not drawn over', function()
+                -- fits the wide window, the narrow one draws over its rows
+                util.setup.text({
+                    'BEFORE',
+                    '',
+                    '| A | B |',
+                    '| - | - |',
+                    '| x | see [docs](https://e.io) now |',
+                    '',
+                    'AFTER',
+                }, opts)
+                local wide, narrow, buf = split()
+                local actual_wide, actual_narrow = screen(wide), screen(narrow)
+                assert.same({
+                    'BEFORE',
+                    '┌───┬────────────────┐',
+                    '│ A │ B              │',
+                    '├───┼────────────────┤',
+                    '│ x │ see 󰖟 docs now │',
+                    '└───┴────────────────┘',
+                    'AFTER',
+                }, actual_wide)
+                assert.same(alone(wide, narrow, buf), actual_wide)
+                assert.same(alone(narrow, wide, buf), actual_narrow)
+            end)
+
+            it('a closed window frees its namespace', function()
+                util.setup.text(mixed, opts)
+                local scope = require('render-markdown.lib.scope')
+                local wide, narrow, buf = split()
+                local ns = assert(scope.find(narrow))
+                ---@return integer
+                local function count()
+                    return #vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {})
+                end
+                assert.is_true(count() > 0)
+
+                vim.api.nvim_win_close(narrow, true)
+                resized(buf)
+                assert.is_nil(scope.find(narrow))
+                assert.same(0, count())
+
+                -- the next window takes it over and is drawn for its own width
+                local _, other = split()
+                assert.same(ns, scope.find(other))
+                assert.same(alone(other, wide, buf), screen(other))
+            end)
         end)
     end)
 end)

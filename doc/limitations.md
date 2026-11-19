@@ -22,8 +22,10 @@ completely replacing the lines with virtual lines.
 
 With `pipe_table.wrap_mode = 'overlay'` rows are drawn over their own text rather
 than replaced, so they keep these line breaks and a row is never shorter than its
-text. Rows are also measured in the window being rendered, so another window on
-the same buffer with a different width will not line up.
+text. Where a row wraps depends on the window, so each window on the buffer gets
+its own drawing of every table, using Neovim's experimental window scoped
+namespaces (`nvim__ns_set`). Without those, tables are drawn for one window and
+another window on the same buffer with a different width will not line up.
 
 ## `block` Width Removes Column Features
 

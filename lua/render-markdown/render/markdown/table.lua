@@ -4,6 +4,7 @@ local compat = require('render-markdown.lib.compat')
 local env = require('render-markdown.lib.env')
 local iter = require('render-markdown.lib.iter')
 local list = require('render-markdown.lib.list')
+local scope = require('render-markdown.lib.scope')
 local str = require('render-markdown.lib.str')
 local ui = require('render-markdown.core.ui')
 
@@ -12,6 +13,32 @@ local ui = require('render-markdown.core.ui')
 ---@field private data render.md.table.Data
 local Render = setmetatable({}, Base)
 Render.__index = Render
+
+---Rows are drawn over where a window wraps them, which differs between
+---windows of different widths. When the context lists windows the table is
+---drawn for each of them, into marks that only that window shows.
+---@param context render.md.request.Context
+---@param marks render.md.Marks
+---@param node render.md.Node
+---@return boolean
+function Render:execute(context, marks, node)
+    local wins = context.wins
+    if not wins then
+        return Base.execute(self, context, marks, node)
+    end
+    local result = false
+    local used = context.used
+    for _, win in ipairs(wins) do
+        local window = context:window(win)
+        marks:scope(win)
+        result = Base.execute(self, window, marks, node) or result
+        -- borders take the same rows in every window
+        used = window.used
+    end
+    marks:scope(nil)
+    context.used = used
+    return result
+end
 
 ---@protected
 ---@return boolean
@@ -263,6 +290,10 @@ function Render:cover(node, get)
     -- marks from the previous render would move where the row wraps, every
     -- mark on it is replaced by this render
     vim.api.nvim_buf_clear_namespace(buf, ui.ns, row, row + 1)
+    local ns = scope.find(win)
+    if ns then
+        vim.api.nvim_buf_clear_namespace(buf, ns, row, row + 1)
+    end
     local starts = env.row.starts(win, row)
 
     local width = env.win.width(win)

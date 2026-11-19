@@ -3,6 +3,7 @@ local compat = require('render-markdown.lib.compat')
 local env = require('render-markdown.lib.env')
 local iter = require('render-markdown.lib.iter')
 local log = require('render-markdown.core.log')
+local scope = require('render-markdown.lib.scope')
 local state = require('render-markdown.state')
 
 ---@class render.md.Ui
@@ -19,8 +20,20 @@ function M.setup()
     -- clear marks and reset cache
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
         vim.api.nvim_buf_clear_namespace(buf, M.ns, 0, -1)
+        scope.clear(buf)
     end
     M.cache = {}
+end
+
+---@param win integer
+function M.close(win)
+    if not scope.find(win) then
+        return
+    end
+    for _, decorator in pairs(M.cache) do
+        decorator:forget(win)
+    end
+    scope.release(win)
 end
 
 ---@param buf integer
@@ -117,6 +130,7 @@ end
 function Updater:clear()
     self.decorator:clear(M.ns)
     vim.api.nvim_buf_clear_namespace(self.buf, M.ns, 0, -1)
+    scope.clear(self.buf)
     state.on.clear({ buf = self.buf, win = self.win })
 end
 
@@ -206,6 +220,17 @@ end
 function Updater:hide(extmark, range)
     local mark = extmark:get()
 
+    if mark.win then
+        -- window closed or showing another buffer -> hide
+        if not env.valid(self.buf, mark.win) then
+            return true
+        end
+        -- not the window being edited -> nothing is revealed
+        if mark.win ~= self.win then
+            range = nil
+        end
+    end
+
     -- virtual row -> no editable screen cells -> must hide
     if mark.replace then
         local row = env.row.get(self.buf, self.win)
@@ -232,6 +257,10 @@ function Updater:hide(extmark, range)
     elseif overlay == 'cursor' or overlay == 'away' then
         -- copies with and without the cursor line -> show the one that applies
         local row = env.row.get(self.buf, self.win)
+        if mark.win then
+            -- each window draws a cursor line on its own cursor row
+            row = vim.api.nvim_win_get_cursor(mark.win)[1] - 1
+        end
         return (row == mark.start_row) ~= (overlay == 'cursor')
     else
         return false

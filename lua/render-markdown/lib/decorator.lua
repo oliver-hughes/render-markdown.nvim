@@ -60,6 +60,17 @@ function Decorator:clear(ns)
     self.generated = {}
 end
 
+---Removes marks only shown in a window that is closing, so their ids are not
+---used again once its namespace is.
+---@param win integer
+function Decorator:forget(win)
+    for _, extmark in ipairs(self.marks) do
+        if extmark:get().win == win then
+            extmark:hide(-1, self.buf)
+        end
+    end
+end
+
 ---@param ns integer
 ---@param hide fun(extmark: render.md.Extmark): boolean
 function Decorator:display(ns, hide)

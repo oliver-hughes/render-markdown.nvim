@@ -1,7 +1,9 @@
 local interval = require('render-markdown.lib.interval')
+local scope = require('render-markdown.lib.scope')
 
 ---@class render.md.Extmark
 ---@field private id? integer
+---@field private ns? integer
 ---@field private mark render.md.Mark
 ---@field private range render.md.Range
 local Extmark = {}
@@ -37,13 +39,16 @@ function Extmark:overlaps(range)
     return interval.overlap(self.range, range) ~= nil
 end
 
----@param ns integer
+---@param ns integer used unless the mark is only shown in one window
 ---@param buf integer
 function Extmark:show(ns, buf)
     if self.id then
         return
     end
     local mark = self.mark
+    if mark.win then
+        ns = scope.get(mark.win)
+    end
     mark.opts.strict = false
     local ok, id = pcall(
         vim.api.nvim_buf_set_extmark,
@@ -55,20 +60,22 @@ function Extmark:show(ns, buf)
     )
     if ok then
         self.id = id
+        self.ns = ns
     else
         local compat = require('render-markdown.lib.compat')
         compat.release(('nvim_buf_set_extmark error (%s)'):format(id))
     end
 end
 
----@param ns integer
+---@param ns integer used if the mark was never shown
 ---@param buf integer
 function Extmark:hide(ns, buf)
     if not self.id then
         return
     end
-    vim.api.nvim_buf_del_extmark(buf, ns, self.id)
+    vim.api.nvim_buf_del_extmark(buf, self.ns or ns, self.id)
     self.id = nil
+    self.ns = nil
 end
 
 return Extmark
